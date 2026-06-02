@@ -1,0 +1,29 @@
+name: OmniVoice Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  serve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install OmniVoice
+        run: |
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install omnivoice
+
+      - name: Start tunnel and server
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+          ./cloudflared tunnel --url http://localhost:7860 --no-autoupdate &
+          sleep 5
+          omnivoice-demo --ip 0.0.0.0 --port 7860 --ref_audio reference.wav
