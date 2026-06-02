@@ -25,10 +25,25 @@ jobs:
           pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install omnivoice
 
-      - name: Start tunnel and server
+      - name: Test CPU inference speed
         run: |
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-          chmod +x cloudflared
-          ./cloudflared tunnel --url http://localhost:7860 --no-autoupdate 2>&1 | tee tunnel.log &
-          sleep 10
-          omnivoice-demo --ip 0.0.0.0 --port 7860
+          python3 - <<'EOF'
+          import time
+          from omnivoice import OmniVoice
+          import soundfile as sf
+          print("Loading model...")
+          t0 = time.time()
+          model = OmniVoice.from_pretrained("k2-fsa/OmniVoice")
+          print(f"Model loaded in {time.time()-t0:.1f}s")
+          print("Generating audio...")
+          t1 = time.time()
+          audio = model.generate(
+              text="Hello, this is a test of voice cloning on a CPU.",
+              ref_audio="reference.wav",
+          )
+          elapsed = time.time()-t1
+          sf.write("test_output.wav", audio[0], 24000)
+          duration = len(audio[0]) / 24000
+          print(f"Generated {duration:.1f}s of audio in {elapsed:.1f}s")
+          print(f"Speed ratio: {duration/elapsed:.2f}x realtime")
+          EOF
