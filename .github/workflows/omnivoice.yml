@@ -16,7 +16,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install ffmpeg
-        run: sudo apt-get install -y --fix-missing ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --fix-missing --no-install-recommends ffmpeg
 
       - name: Install OmniVoice
         run: |
