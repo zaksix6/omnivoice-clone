@@ -15,6 +15,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install ffmpeg
+        run: sudo apt-get install -y ffmpeg
+
       - name: Install OmniVoice
         run: |
           pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
@@ -24,6 +27,6 @@ jobs:
         run: |
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           chmod +x cloudflared
-          ./cloudflared tunnel --url http://localhost:7860 --no-autoupdate &
-          sleep 5
-          omnivoice-demo --ip 0.0.0.0 --port 7860 --ref_audio reference.wav
+          ./cloudflared tunnel --url http://localhost:7860 --no-autoupdate 2>&1 | tee tunnel.log &
+          sleep 10
+          omnivoice-demo --ip 0.0.0.0 --port 7860
