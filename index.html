@@ -203,13 +203,11 @@
     el.className = 'offline-notice' + (show ? ' visible' : '');
   }
 
-  // Split text into sentences
   function splitSentences(text) {
     var parts = text.match(/[^.!?]+[.!?]+/g) || [text];
     return parts.map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
   }
 
-  // Fetch tunnel URL from GitHub
   function getTunnelUrl(callback) {
     fetch(TUNNEL_URL_RAW + '?nocache=' + Date.now())
       .then(function(r) { return r.text(); })
@@ -232,7 +230,6 @@
       });
   }
 
-  // Generate audio for one sentence
   function generateAudio(sentence, callback) {
     fetch(tunnelUrl + '/speak', {
       method: 'POST',
@@ -249,13 +246,13 @@
     });
   }
 
-  // Play audio queue sequentially
   function playNext() {
     if (audioQueue.length === 0) {
       isPlaying = false;
       if (!isSpeaking) {
-        setStatus('Done!', '');
+        setStatus('', '');
         document.getElementById('btn-speak').disabled = false;
+        document.getElementById('text-input').value = '';
       }
       return;
     }
@@ -302,7 +299,6 @@
 
       setStatus('Preparing sentence 1 of ' + total + '...', 'active');
 
-      // Generate sentences one at a time, add to queue as ready
       function generateNext(index) {
         if (index >= total) {
           isSpeaking = false;
@@ -312,7 +308,6 @@
         generateAudio(sentences[index], function(url) {
           audioQueue.push(url);
           generated++;
-          // Start playing as soon as first sentence is ready
           if (!isPlaying) {
             playNext();
           }
@@ -324,11 +319,8 @@
     });
   }
 
-  // Check if session is active on page load
   getTunnelUrl(function(ok) {
-    if (!ok) {
-      setStatus('', '');
-    }
+    if (!ok) { setStatus('', ''); }
   });
 </script>
 
