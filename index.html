@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Talk to Papa Jerry</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #fdf6e3;
+    --brown: #8B5E3C;
+    --brown-light: #c49a6c;
+    --brown-dark: #5c3d1e;
+    --accent: #e8845a;
+    --accent-hover: #d46940;
+    --text: #3d2b1f;
+    --shadow: rgba(92, 61, 30, 0.18);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background-color: var(--cream);
+    background-image:
+      radial-gradient(ellipse at 10% 10%, rgba(196,154,108,0.13) 0%, transparent 60%),
+      radial-gradient(ellipse at 90% 90%, rgba(232,132,90,0.10) 0%, transparent 60%);
+    font-family: 'Nunito', sans-serif;
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 18px 12px 32px;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 28px;
+    width: 100%;
+    max-width: 700px;
+  }
+
+  .photo-frame {
+    width: 100px;
+    height: 120px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 3px solid var(--brown);
+    box-shadow: 0 4px 12px var(--shadow);
+    flex-shrink: 0;
+  }
+
+  .photo-frame img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .header-text h1 {
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.8rem;
+    color: var(--brown-dark);
+    line-height: 1.1;
+  }
+
+  .header-text p {
+    font-size: 0.9rem;
+    color: var(--brown-light);
+    font-weight: 600;
+    margin-top: 4px;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 700px;
+    background: white;
+    border-radius: 18px;
+    box-shadow: 0 8px 32px var(--shadow);
+    padding: 28px;
+    border: 2px solid rgba(139,94,60,0.12);
+  }
+
+  .instruction {
+    font-size: 0.95rem;
+    color: var(--brown-light);
+    font-weight: 600;
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 140px;
+    border: 2px solid var(--brown-light);
+    border-radius: 12px;
+    padding: 14px;
+    font-family: 'Nunito', sans-serif;
+    font-size: 1rem;
+    color: var(--text);
+    background: var(--cream);
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.18s;
+    line-height: 1.6;
+  }
+
+  textarea:focus { border-color: var(--accent); }
+
+  .btn-speak {
+    margin-top: 14px;
+    width: 100%;
+    font-family: 'Fredoka One', cursive;
+    font-size: 1.1rem;
+    padding: 12px;
+    border: none;
+    border-radius: 50px;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    box-shadow: 0 3px 10px var(--shadow);
+  }
+
+  .btn-speak:hover:not(:disabled) {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+  }
+
+  .btn-speak:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .status {
+    margin-top: 16px;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    min-height: 24px;
+    color: var(--brown-light);
+  }
+
+  .status.active { color: var(--accent); }
+  .status.error { color: #c0392b; }
+
+  .offline-notice {
+    margin-top: 24px;
+    padding: 14px 18px;
+    background: rgba(139,94,60,0.08);
+    border-radius: 12px;
+    font-size: 0.85rem;
+    color: var(--brown);
+    text-align: center;
+    line-height: 1.6;
+    display: none;
+  }
+
+  .offline-notice.visible { display: block; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="photo-frame">
+    <img src="me.jpg" alt="Papa Jerry">
+  </div>
+  <div class="header-text">
+    <h1>Talk to Papa Jerry</h1>
+    <p>Type anything and hear it in Papa Jerry's voice 🐻</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="instruction">
+    Type a sentence or a paragraph — Papa Jerry will read it back to you in his own voice.
+  </div>
+  <textarea id="text-input" placeholder="Type something here..."></textarea>
+  <button class="btn-speak" id="btn-speak" onclick="handleSpeak()">▶ Speak</button>
+  <div class="status" id="status"></div>
+  <div class="offline-notice" id="offline-notice">
+    Papa Jerry's live voice is not available right now.<br>
+    Please check back later when a session is active.
+  </div>
+</div>
+
+<script>
+  var TUNNEL_URL_RAW = 'https://raw.githubusercontent.com/zaksix6/omnivoice-clone/main/tunnel_url.txt';
+  var tunnelUrl = null;
+  var audioQueue = [];
+  var isPlaying = false;
+  var isSpeaking = false;
+
+  function setStatus(msg, type) {
+    var el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = 'status' + (type ? ' ' + type : '');
+  }
+
+  function showOffline(show) {
+    var el = document.getElementById('offline-notice');
+    el.className = 'offline-notice' + (show ? ' visible' : '');
+  }
+
+  // Split text into sentences
+  function splitSentences(text) {
+    var parts = text.match(/[^.!?]+[.!?]+/g) || [text];
+    return parts.map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+  }
+
+  // Fetch tunnel URL from GitHub
+  function getTunnelUrl(callback) {
+    fetch(TUNNEL_URL_RAW + '?nocache=' + Date.now())
+      .then(function(r) { return r.text(); })
+      .then(function(text) {
+        var url = text.trim();
+        if (url && url.startsWith('http')) {
+          tunnelUrl = url;
+          showOffline(false);
+          callback(true);
+        } else {
+          tunnelUrl = null;
+          showOffline(true);
+          callback(false);
+        }
+      })
+      .catch(function() {
+        tunnelUrl = null;
+        showOffline(true);
+        callback(false);
+      });
+  }
+
+  // Generate audio for one sentence
+  function generateAudio(sentence, callback) {
+    fetch(tunnelUrl + '/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: sentence })
+    })
+    .then(function(r) { return r.blob(); })
+    .then(function(blob) {
+      var url = URL.createObjectURL(blob);
+      callback(url);
+    })
+    .catch(function() {
+      callback(null);
+    });
+  }
+
+  // Play audio queue sequentially
+  function playNext() {
+    if (audioQueue.length === 0) {
+      isPlaying = false;
+      if (!isSpeaking) {
+        setStatus('Done!', '');
+        document.getElementById('btn-speak').disabled = false;
+      }
+      return;
+    }
+    isPlaying = true;
+    var item = audioQueue.shift();
+    if (item === null) {
+      playNext();
+      return;
+    }
+    var audio = new Audio(item);
+    audio.onended = function() {
+      URL.revokeObjectURL(item);
+      playNext();
+    };
+    audio.onerror = function() {
+      playNext();
+    };
+    setStatus('▶ Speaking...', 'active');
+    audio.play().catch(function() { playNext(); });
+  }
+
+  function handleSpeak() {
+    var text = document.getElementById('text-input').value.trim();
+    if (!text) return;
+
+    document.getElementById('btn-speak').disabled = true;
+    audioQueue = [];
+    isPlaying = false;
+    isSpeaking = true;
+    setStatus('Connecting...', 'active');
+    showOffline(false);
+
+    getTunnelUrl(function(ok) {
+      if (!ok) {
+        setStatus('', '');
+        document.getElementById('btn-speak').disabled = false;
+        isSpeaking = false;
+        return;
+      }
+
+      var sentences = splitSentences(text);
+      var total = sentences.length;
+      var generated = 0;
+
+      setStatus('Preparing sentence 1 of ' + total + '...', 'active');
+
+      // Generate sentences one at a time, add to queue as ready
+      function generateNext(index) {
+        if (index >= total) {
+          isSpeaking = false;
+          return;
+        }
+        setStatus('Preparing sentence ' + (index + 1) + ' of ' + total + '...', 'active');
+        generateAudio(sentences[index], function(url) {
+          audioQueue.push(url);
+          generated++;
+          // Start playing as soon as first sentence is ready
+          if (!isPlaying) {
+            playNext();
+          }
+          generateNext(index + 1);
+        });
+      }
+
+      generateNext(0);
+    });
+  }
+
+  // Check if session is active on page load
+  getTunnelUrl(function(ok) {
+    if (!ok) {
+      setStatus('', '');
+    }
+  });
+</script>
+
+</body>
+</html>
