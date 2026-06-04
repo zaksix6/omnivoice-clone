@@ -201,7 +201,11 @@
   }
 
   function splitSentences(text) {
-    var parts = text.match(/[^.!?]+[.!?]+/g) || [text];
+    var parts = text.match(/[^.!?:]+[.!?:]+/g) || [];
+    var joined = parts.join('');
+    var remainder = text.slice(joined.length).trim();
+    if (remainder.length > 0) parts.push(remainder);
+    if (parts.length === 0) return [text.trim()];
     return parts.map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
   }
 
