@@ -188,9 +188,6 @@
 <script>
   var TUNNEL_URL_RAW = 'https://raw.githubusercontent.com/zaksix6/omnivoice-clone/main/tunnel_url.txt';
   var tunnelUrl = null;
-  var audioQueue = [];
-  var isPlaying = false;
-  var isSpeaking = false;
 
   function setStatus(msg, type) {
     var el = document.getElementById('status');
@@ -238,40 +235,11 @@
     })
     .then(function(r) { return r.blob(); })
     .then(function(blob) {
-      var url = URL.createObjectURL(blob);
-      callback(url);
+      callback(URL.createObjectURL(blob));
     })
     .catch(function() {
       callback(null);
     });
-  }
-
-  function playNext() {
-    if (audioQueue.length === 0) {
-      isPlaying = false;
-      if (!isSpeaking) {
-        setStatus('', '');
-        document.getElementById('btn-speak').disabled = false;
-        document.getElementById('text-input').value = '';
-      }
-      return;
-    }
-    isPlaying = true;
-    var item = audioQueue.shift();
-    if (item === null) {
-      playNext();
-      return;
-    }
-    var audio = new Audio(item);
-    audio.onended = function() {
-      URL.revokeObjectURL(item);
-      playNext();
-    };
-    audio.onerror = function() {
-      playNext();
-    };
-    setStatus('▶ Speaking...', 'active');
-    audio.play().catch(function() { playNext(); });
   }
 
   function handleSpeak() {
@@ -279,9 +247,6 @@
     if (!text) return;
 
     document.getElementById('btn-speak').disabled = true;
-    audioQueue = [];
-    isPlaying = false;
-    isSpeaking = true;
     setStatus('Connecting...', 'active');
     showOffline(false);
 
@@ -289,28 +254,73 @@
       if (!ok) {
         setStatus('', '');
         document.getElementById('btn-speak').disabled = false;
-        isSpeaking = false;
         return;
       }
 
       var sentences = splitSentences(text);
       var total = sentences.length;
-      var generated = 0;
 
-      setStatus('Preparing sentence 1 of ' + total + '...', 'active');
+      // Two counters - one for generation, one for playback
+      var generatedCount = 0;
+      var playedCount = 0;
+      var generationDone = false;
+      var readyQueue = [];  // URLs ready to play in order
+      var isPlaying = false;
+
+      function checkAllDone() {
+        if (generationDone && playedCount >= total) {
+          setStatus('', '');
+          document.getElementById('btn-speak').disabled = false;
+          document.getElementById('text-input').value = '';
+        }
+      }
+
+      function playNextReady() {
+        if (isPlaying) return;
+        if (readyQueue.length === 0) return;
+        var url = readyQueue.shift();
+        if (url === null) {
+          playedCount++;
+          checkAllDone();
+          playNextReady();
+          return;
+        }
+        isPlaying = true;
+        var audio = new Audio(url);
+        audio.onended = function() {
+          URL.revokeObjectURL(url);
+          isPlaying = false;
+          playedCount++;
+          setStatus('▶ Speaking...', 'active');
+          checkAllDone();
+          playNextReady();
+        };
+        audio.onerror = function() {
+          isPlaying = false;
+          playedCount++;
+          checkAllDone();
+          playNextReady();
+        };
+        setStatus('▶ Speaking...', 'active');
+        audio.play().catch(function() {
+          isPlaying = false;
+          playedCount++;
+          checkAllDone();
+          playNextReady();
+        });
+      }
 
       function generateNext(index) {
         if (index >= total) {
-          isSpeaking = false;
+          generationDone = true;
+          checkAllDone();
           return;
         }
-        setStatus('Preparing sentence ' + (index + 1) + ' of ' + total + '...', 'active');
+        setStatus('Preparing ' + (index + 1) + ' of ' + total + '...', 'active');
         generateAudio(sentences[index], function(url) {
-          audioQueue.push(url);
-          generated++;
-          if (!isPlaying) {
-            playNext();
-          }
+          generatedCount++;
+          readyQueue.push(url);
+          playNextReady();
           generateNext(index + 1);
         });
       }
