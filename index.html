@@ -232,16 +232,31 @@
   }
 
   function generateAudio(sentence, callback) {
+    var controller = new AbortController();
+    var timeout = setTimeout(function() {
+      controller.abort();
+    }, 10000); // 10 second timeout
+
     fetch(tunnelUrl + '/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: sentence })
+      body: JSON.stringify({ text: sentence }),
+      signal: controller.signal
     })
-    .then(function(r) { return r.blob(); })
+    .then(function(r) {
+      clearTimeout(timeout);
+      return r.blob();
+    })
     .then(function(blob) {
       callback(URL.createObjectURL(blob));
     })
     .catch(function() {
+      clearTimeout(timeout);
+      tunnelUrl = null;
+      showOffline(true);
+      setStatus('', '');
+      document.getElementById('btn-speak').disabled = false;
+      document.getElementById('text-input').value = '';
       callback(null);
     });
   }
