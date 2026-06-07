@@ -31,45 +31,38 @@
     flex-direction: column;
     align-items: center;
     padding: 18px 12px 32px;
+    gap: 16px;
   }
 
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 28px;
-    width: 100%;
-    max-width: 700px;
-  }
-
+  /* PHOTO */
   .photo-frame {
-    width: 100px;
-    height: 120px;
-    border-radius: 14px;
+    width: 220px;
+    height: 260px;
+    border-radius: 16px;
     overflow: hidden;
     border: 3px solid var(--brown);
-    box-shadow: 0 4px 12px var(--shadow);
+    box-shadow: 0 6px 20px var(--shadow);
     flex-shrink: 0;
+    position: relative;
   }
 
   .photo-frame img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    position: absolute;
+    top: 0; left: 0;
+    transition: opacity 0.05s ease;
   }
 
-  .header-text h1 {
+  #img-closed { opacity: 1; }
+  #img-open   { opacity: 0; }
+
+  .photo-caption {
     font-family: 'Fredoka One', cursive;
-    font-size: 1.8rem;
-    color: var(--brown-dark);
-    line-height: 1.1;
-  }
-
-  .header-text p {
-    font-size: 0.9rem;
-    color: var(--brown-light);
-    font-weight: 600;
-    margin-top: 4px;
+    font-size: 1rem;
+    color: var(--brown);
+    text-align: center;
   }
 
   .card {
@@ -128,10 +121,7 @@
     transform: translateY(-1px);
   }
 
-  .btn-speak:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  .btn-speak:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .status {
     margin-top: 16px;
@@ -143,7 +133,6 @@
   }
 
   .status.active { color: var(--accent); }
-  .status.error { color: #c0392b; }
 
   .offline-notice {
     margin-top: 24px;
@@ -162,16 +151,14 @@
 </head>
 <body>
 
-<div class="header">
-  <div class="photo-frame">
-    <img src="me.jpg" alt="Papa Jerry">
-  </div>
-  <div class="header-text">
-    <h1>Talk to Papa Jerry</h1>
-    <p>Type anything and hear it in Papa Jerry's voice 🐻</p>
-  </div>
+<!-- TALKING PHOTO -->
+<div class="photo-frame">
+  <img id="img-closed" src="mouth_closed.jpg" alt="Papa Jerry">
+  <img id="img-open"   src="mouth_open.jpg"   alt="Papa Jerry talking">
 </div>
+<div class="photo-caption">Papa Jerry 🐻</div>
 
+<!-- INPUT CARD -->
 <div class="card">
   <div class="instruction">
     Type a sentence or a paragraph — Papa Jerry will read it back to you in his own voice.
@@ -189,6 +176,64 @@
   var TUNNEL_URL_RAW = 'https://raw.githubusercontent.com/zaksix6/omnivoice-clone/main/tunnel_url.txt';
   var tunnelUrl = null;
 
+  // ── LIP SYNC ──
+  var imgClosed = document.getElementById('img-closed');
+  var imgOpen   = document.getElementById('img-open');
+  var audioCtx  = null;
+  var analyser  = null;
+  var dataArray = null;
+  var mouthOpen = false;
+  var lastSpoken = 0;
+  var COOLDOWN_MS = 120;
+  var animRunning = false;
+
+  function initAudioContext() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+  }
+
+  function connectAudioElement(audioEl) {
+    initAudioContext();
+    // Resume context if suspended (mobile requirement)
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var source = audioCtx.createMediaElementSource(audioEl);
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    if (!animRunning) {
+      animRunning = true;
+      drawLoop();
+    }
+  }
+
+  function drawLoop() {
+    requestAnimationFrame(drawLoop);
+    if (!analyser) return;
+    analyser.getByteTimeDomainData(dataArray);
+    var total = 0;
+    for (var i = 0; i < dataArray.length; i++) {
+      var norm = (dataArray[i] - 128) / 128;
+      total += norm * norm;
+    }
+    var rms = Math.sqrt(total / dataArray.length);
+    if (rms > 0.04) {
+      mouthOpen = true;
+      lastSpoken = Date.now();
+    } else if (Date.now() - lastSpoken > COOLDOWN_MS) {
+      mouthOpen = false;
+    }
+    if (mouthOpen) {
+      imgClosed.style.opacity = '0';
+      imgOpen.style.opacity   = '1';
+    } else {
+      imgClosed.style.opacity = '1';
+      imgOpen.style.opacity   = '0';
+    }
+  }
+
+  // ── UTILITIES ──
   function setStatus(msg, type) {
     var el = document.getElementById('status');
     el.textContent = msg;
@@ -233,10 +278,7 @@
 
   function generateAudio(sentence, callback) {
     var controller = new AbortController();
-    var timeout = setTimeout(function() {
-      controller.abort();
-    }, 10000); // 10 second timeout
-
+    var timeout = setTimeout(function() { controller.abort(); }, 10000);
     fetch(tunnelUrl + '/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -278,12 +320,9 @@
 
       var sentences = splitSentences(text);
       var total = sentences.length;
-
-      // Two counters - one for generation, one for playback
-      var generatedCount = 0;
-      var playedCount = 0;
       var generationDone = false;
-      var readyQueue = [];  // URLs ready to play in order
+      var playedCount = 0;
+      var readyQueue = [];
       var isPlaying = false;
 
       function checkAllDone() {
@@ -305,23 +344,27 @@
           return;
         }
         isPlaying = true;
-        var audio = new Audio(url);
-        audio.onended = function() {
+        var audioEl = new Audio(url);
+        audioEl.crossOrigin = 'anonymous';
+
+        // Connect to analyser for lip sync
+        connectAudioElement(audioEl);
+
+        audioEl.onended = function() {
           URL.revokeObjectURL(url);
           isPlaying = false;
           playedCount++;
-          setStatus('▶ Speaking...', 'active');
           checkAllDone();
           playNextReady();
         };
-        audio.onerror = function() {
+        audioEl.onerror = function() {
           isPlaying = false;
           playedCount++;
           checkAllDone();
           playNextReady();
         };
         setStatus('▶ Speaking...', 'active');
-        audio.play().catch(function() {
+        audioEl.play().catch(function() {
           isPlaying = false;
           playedCount++;
           checkAllDone();
@@ -337,7 +380,6 @@
         }
         setStatus('Preparing ' + (index + 1) + ' of ' + total + '...', 'active');
         generateAudio(sentences[index], function(url) {
-          generatedCount++;
           readyQueue.push(url);
           playNextReady();
           generateNext(index + 1);
