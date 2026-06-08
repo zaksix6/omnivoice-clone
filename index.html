@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Talk to Papa Jerry</title>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="people.js"></script>
 <style>
   :root {
     --cream: #fdf6e3;
@@ -34,7 +35,6 @@
     gap: 16px;
   }
 
-  /* PHOTO */
   .photo-frame {
     width: 220px;
     height: 260px;
@@ -72,19 +72,40 @@
     box-shadow: 0 8px 32px var(--shadow);
     padding: 28px;
     border: 2px solid rgba(139,94,60,0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
-  .instruction {
-    font-size: 0.95rem;
-    color: var(--brown-light);
-    font-weight: 600;
-    margin-bottom: 14px;
-    line-height: 1.5;
+  /* RESPONSE AREA */
+  .response-box {
+    width: 100%;
+    min-height: 80px;
+    background: var(--cream);
+    border: 2px solid var(--brown-light);
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 1rem;
+    line-height: 1.6;
+    color: var(--text);
+    font-style: italic;
+    display: none;
   }
+
+  .response-box.visible { display: block; }
+
+  .response-label {
+    font-family: 'Fredoka One', cursive;
+    font-size: 0.88rem;
+    color: var(--brown);
+    display: none;
+  }
+
+  .response-label.visible { display: block; }
 
   textarea {
     width: 100%;
-    min-height: 140px;
+    min-height: 120px;
     border: 2px solid var(--brown-light);
     border-radius: 12px;
     padding: 14px;
@@ -100,8 +121,7 @@
 
   textarea:focus { border-color: var(--accent); }
 
-  .btn-speak {
-    margin-top: 14px;
+  .btn-talk {
     width: 100%;
     font-family: 'Fredoka One', cursive;
     font-size: 1.1rem;
@@ -115,15 +135,14 @@
     box-shadow: 0 3px 10px var(--shadow);
   }
 
-  .btn-speak:hover:not(:disabled) {
+  .btn-talk:hover:not(:disabled) {
     background: var(--accent-hover);
     transform: translateY(-1px);
   }
 
-  .btn-speak:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-talk:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .status {
-    margin-top: 16px;
     text-align: center;
     font-size: 0.9rem;
     font-weight: 600;
@@ -134,7 +153,6 @@
   .status.active { color: var(--accent); }
 
   .offline-notice {
-    margin-top: 24px;
     padding: 14px 18px;
     background: rgba(139,94,60,0.08);
     border-radius: 12px;
@@ -150,23 +168,20 @@
 </head>
 <body>
 
-<!-- TALKING PHOTO -->
 <div class="photo-frame">
   <img id="img-closed" src="mouth_closed.jpg" alt="Papa Jerry">
   <img id="img-open"   src="mouth_open.jpg"   alt="Papa Jerry talking">
 </div>
 <div class="photo-caption">Papa Jerry 🐻</div>
 
-<!-- INPUT CARD -->
 <div class="card">
-  <div class="instruction">
-    Type a sentence or a paragraph — Papa Jerry will read it back to you in his own voice.
-  </div>
-  <textarea id="text-input" placeholder="Type something here..."></textarea>
-  <button class="btn-speak" id="btn-speak" onclick="handleSpeak()">▶ Speak</button>
+  <div class="response-label" id="response-label">Papa Jerry says:</div>
+  <div class="response-box"   id="response-box"></div>
+  <textarea id="text-input" placeholder="Say something to Papa Jerry..."></textarea>
+  <button class="btn-talk" id="btn-talk" onclick="handleTalk()">🐻 Talk to Papa Jerry</button>
   <div class="status" id="status"></div>
   <div class="offline-notice" id="offline-notice">
-    Papa Jerry's live voice is not available right now.<br>
+    Papa Jerry is not available right now.<br>
     Please check back later when a session is active.
   </div>
 </div>
@@ -174,14 +189,15 @@
 <script>
   var TUNNEL_URL_RAW = 'https://raw.githubusercontent.com/zaksix6/omnivoice-clone/main/tunnel_url.txt';
   var tunnelUrl = null;
+  var conversationHistory = [];
 
   // ── LIP SYNC ──
-  var imgClosed = document.getElementById('img-closed');
-  var imgOpen   = document.getElementById('img-open');
-  var audioCtx  = null;
-  var analyser  = null;
-  var dataArray = null;
-  var mouthOpen = false;
+  var imgClosed  = document.getElementById('img-closed');
+  var imgOpen    = document.getElementById('img-open');
+  var audioCtx   = null;
+  var analyser   = null;
+  var dataArray  = null;
+  var mouthOpen  = false;
   var lastSpoken = 0;
   var COOLDOWN_MS = 120;
   var animRunning = false;
@@ -196,15 +212,11 @@
 
   function connectAudioElement(audioEl) {
     initAudioContext();
-    // Resume context if suspended (mobile requirement)
     if (audioCtx.state === 'suspended') audioCtx.resume();
     var source = audioCtx.createMediaElementSource(audioEl);
     source.connect(analyser);
     analyser.connect(audioCtx.destination);
-    if (!animRunning) {
-      animRunning = true;
-      drawLoop();
-    }
+    if (!animRunning) { animRunning = true; drawLoop(); }
   }
 
   function drawLoop() {
@@ -217,19 +229,10 @@
       total += norm * norm;
     }
     var rms = Math.sqrt(total / dataArray.length);
-    if (rms > 0.04) {
-      mouthOpen = true;
-      lastSpoken = Date.now();
-    } else if (Date.now() - lastSpoken > COOLDOWN_MS) {
-      mouthOpen = false;
-    }
-    if (mouthOpen) {
-      imgClosed.style.opacity = '0';
-      imgOpen.style.opacity   = '1';
-    } else {
-      imgClosed.style.opacity = '1';
-      imgOpen.style.opacity   = '0';
-    }
+    if (rms > 0.04) { mouthOpen = true; lastSpoken = Date.now(); }
+    else if (Date.now() - lastSpoken > COOLDOWN_MS) { mouthOpen = false; }
+    imgClosed.style.opacity = mouthOpen ? '0' : '1';
+    imgOpen.style.opacity   = mouthOpen ? '1' : '0';
   }
 
   // ── UTILITIES ──
@@ -240,8 +243,13 @@
   }
 
   function showOffline(show) {
-    var el = document.getElementById('offline-notice');
-    el.className = 'offline-notice' + (show ? ' visible' : '');
+    document.getElementById('offline-notice').className = 'offline-notice' + (show ? ' visible' : '');
+  }
+
+  function showResponse(text) {
+    document.getElementById('response-box').textContent = text;
+    document.getElementById('response-box').className = 'response-box visible';
+    document.getElementById('response-label').className = 'response-label visible';
   }
 
   function splitSentences(text) {
@@ -259,139 +267,148 @@
       .then(function(text) {
         var url = text.trim();
         if (url && url.startsWith('http')) {
-          tunnelUrl = url;
-          showOffline(false);
-          callback(true);
+          tunnelUrl = url; showOffline(false); callback(true);
         } else {
-          tunnelUrl = null;
-          showOffline(true);
-          callback(false);
+          tunnelUrl = null; showOffline(true); callback(false);
         }
       })
-      .catch(function() {
-        tunnelUrl = null;
-        showOffline(true);
-        callback(false);
-      });
+      .catch(function() { tunnelUrl = null; showOffline(true); callback(false); });
   }
 
   function generateAudio(sentence, callback) {
     var controller = new AbortController();
-    var timeout = setTimeout(function() { controller.abort(); }, 10000);
+    var timeout = setTimeout(function() { controller.abort(); }, 30000);
     fetch(tunnelUrl + '/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: sentence }),
       signal: controller.signal
     })
-    .then(function(r) {
-      clearTimeout(timeout);
-      return r.blob();
-    })
-    .then(function(blob) {
-      callback(URL.createObjectURL(blob));
-    })
+    .then(function(r) { clearTimeout(timeout); return r.blob(); })
+    .then(function(blob) { callback(URL.createObjectURL(blob)); })
     .catch(function() {
       clearTimeout(timeout);
       tunnelUrl = null;
       showOffline(true);
       setStatus('', '');
-      document.getElementById('btn-speak').disabled = false;
-      document.getElementById('text-input').value = '';
+      document.getElementById('btn-talk').disabled = false;
       callback(null);
     });
   }
 
-  function handleSpeak() {
+  function speakText(text) {
+    var sentences = splitSentences(text);
+    var total = sentences.length;
+    var generationDone = false;
+    var playedCount = 0;
+    var readyQueue = [];
+    var isPlaying = false;
+
+    function checkAllDone() {
+      if (generationDone && playedCount >= total) {
+        setStatus('', '');
+        document.getElementById('btn-talk').disabled = false;
+        document.getElementById('text-input').value = '';
+      }
+    }
+
+    function playNextReady() {
+      if (isPlaying || readyQueue.length === 0) return;
+      var url = readyQueue.shift();
+      if (url === null) { playedCount++; checkAllDone(); playNextReady(); return; }
+      isPlaying = true;
+      var audioEl = new Audio(url);
+      audioEl.crossOrigin = 'anonymous';
+      connectAudioElement(audioEl);
+      audioEl.onended = function() {
+        URL.revokeObjectURL(url);
+        isPlaying = false;
+        playedCount++;
+        checkAllDone();
+        playNextReady();
+      };
+      audioEl.onerror = function() {
+        isPlaying = false; playedCount++; checkAllDone(); playNextReady();
+      };
+      setStatus('▶ Speaking...', 'active');
+      audioEl.play().catch(function() {
+        isPlaying = false; playedCount++; checkAllDone(); playNextReady();
+      });
+    }
+
+    function generateNext(index) {
+      if (index >= total) { generationDone = true; checkAllDone(); return; }
+      generateAudio(sentences[index], function(url) {
+        readyQueue.push(url);
+        playNextReady();
+        generateNext(index + 1);
+      });
+    }
+
+    generateNext(0);
+  }
+
+  function handleTalk() {
     var text = document.getElementById('text-input').value.trim();
     if (!text) return;
 
-    document.getElementById('btn-speak').disabled = true;
-    setStatus('Connecting...', 'active');
+    document.getElementById('btn-talk').disabled = true;
+    setStatus('Thinking...', 'active');
     showOffline(false);
 
     getTunnelUrl(function(ok) {
       if (!ok) {
         setStatus('', '');
-        document.getElementById('btn-speak').disabled = false;
+        document.getElementById('btn-talk').disabled = false;
         return;
       }
 
-      var sentences = splitSentences(text);
-      var total = sentences.length;
-      var generationDone = false;
-      var playedCount = 0;
-      var readyQueue = [];
-      var isPlaying = false;
-
-      function checkAllDone() {
-        if (generationDone && playedCount >= total) {
-          setStatus('', '');
-          document.getElementById('btn-speak').disabled = false;
-          document.getElementById('text-input').value = '';
-        }
-      }
-
-      function playNextReady() {
-        if (isPlaying) return;
-        if (readyQueue.length === 0) return;
-        var url = readyQueue.shift();
-        if (url === null) {
-          playedCount++;
-          checkAllDone();
-          playNextReady();
+      // Call /chat endpoint
+      fetch(tunnelUrl + '/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          people_data: peopleData,
+          history: conversationHistory
+        })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) {
+          setStatus('Error: ' + data.error, '');
+          document.getElementById('btn-talk').disabled = false;
           return;
         }
-        isPlaying = true;
-        var audioEl = new Audio(url);
-        audioEl.crossOrigin = 'anonymous';
+        var reply = data.reply;
 
-        // Connect to analyser for lip sync
-        connectAudioElement(audioEl);
+        // Show text immediately
+        showResponse(reply);
 
-        audioEl.onended = function() {
-          URL.revokeObjectURL(url);
-          isPlaying = false;
-          playedCount++;
-          checkAllDone();
-          playNextReady();
-        };
-        audioEl.onerror = function() {
-          isPlaying = false;
-          playedCount++;
-          checkAllDone();
-          playNextReady();
-        };
-        setStatus('▶ Speaking...', 'active');
-        audioEl.play().catch(function() {
-          isPlaying = false;
-          playedCount++;
-          checkAllDone();
-          playNextReady();
-        });
-      }
+        // Add to conversation history
+        conversationHistory.push({ role: 'user', content: text });
+        conversationHistory.push({ role: 'assistant', content: reply });
 
-      function generateNext(index) {
-        if (index >= total) {
-          generationDone = true;
-          checkAllDone();
-          return;
+        // Keep history to last 10 exchanges to avoid prompt getting too long
+        if (conversationHistory.length > 20) {
+          conversationHistory = conversationHistory.slice(-20);
         }
-        setStatus('Preparing ' + (index + 1) + ' of ' + total + '...', 'active');
-        generateAudio(sentences[index], function(url) {
-          readyQueue.push(url);
-          playNextReady();
-          generateNext(index + 1);
-        });
-      }
 
-      generateNext(0);
+        setStatus('Preparing voice...', 'active');
+
+        // Now speak the response
+        speakText(reply);
+      })
+      .catch(function() {
+        setStatus('', '');
+        document.getElementById('btn-talk').disabled = false;
+        showOffline(true);
+        tunnelUrl = null;
+      });
     });
   }
 
-  getTunnelUrl(function(ok) {
-    if (!ok) { setStatus('', ''); }
-  });
+  getTunnelUrl(function(ok) { if (!ok) setStatus('', ''); });
 </script>
 
 </body>
