@@ -309,23 +309,11 @@
           scheduleNextCheck();
           return;
         }
-        // URL found — now ping the server to see if it's actually responding
-        fetch(url + '/health', { method: 'GET' })
-          .then(function(resp) {
-            if (resp.ok || resp.status === 404) {
-              // 404 just means no /health route — server IS up
-              tunnelUrl = url;
-              serverReady = true;
-              showServerStatus('ready', '✅ Papa Jerry is ready to talk!');
-              setTimeout(function() { hideServerStatus(); }, 3000);
-            } else {
-              scheduleNextCheck();
-            }
-          })
-          .catch(function() {
-            // server not reachable yet
-            scheduleNextCheck();
-          });
+        // URL exists in the file — Colab writes it after uvicorn starts, so server is up
+        tunnelUrl = url;
+        serverReady = true;
+        showServerStatus('ready', '✅ Papa Jerry is ready to talk!');
+        setTimeout(function() { hideServerStatus(); }, 3000);
       })
       .catch(function() {
         scheduleNextCheck();
