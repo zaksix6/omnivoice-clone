@@ -300,10 +300,25 @@
           scheduleNextCheck();
           return;
         }
-        tunnelUrl = url;
-        serverReady = true;
-        showServerStatus('ready', '✅ Papa Jerry is ready to talk!');
-        setTimeout(function() { hideServerStatus(); document.getElementById('btn-talk').disabled = false; }, 3000);
+        // Ping the server with a real request to confirm it's actually alive
+        fetch(url + '/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'ping', people_data: {}, history: [] })
+        })
+        .then(function(r) {
+          if (r.ok) {
+            tunnelUrl = url;
+            serverReady = true;
+            showServerStatus('ready', '✅ Papa Jerry is ready to talk!');
+            setTimeout(function() { hideServerStatus(); document.getElementById('btn-talk').disabled = false; }, 3000);
+          } else {
+            scheduleNextCheck();
+          }
+        })
+        .catch(function() {
+          scheduleNextCheck();
+        });
       })
       .catch(function() {
         scheduleNextCheck();
