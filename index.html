@@ -77,7 +77,6 @@
     gap: 8px;
   }
 
-  /* RESPONSE AREA */
   .response-box {
     width: 100%;
     min-height: 80px;
@@ -152,18 +151,36 @@
 
   .status.active { color: var(--accent); }
 
-  .offline-notice {
-    padding: 14px 18px;
-    background: rgba(139,94,60,0.08);
+  /* server status banner - replaces offline-notice */
+  .server-status {
+    padding: 12px 16px;
     border-radius: 12px;
     font-size: 0.85rem;
-    color: var(--brown);
     text-align: center;
     line-height: 1.6;
     display: none;
   }
 
-  .offline-notice.visible { display: block; }
+  .server-status.warming {
+    display: block;
+    background: rgba(232,132,90,0.10);
+    color: var(--brown);
+    border: 1.5px solid rgba(196,154,108,0.35);
+  }
+
+  .server-status.offline {
+    display: block;
+    background: rgba(139,94,60,0.08);
+    color: var(--brown);
+    border: 1.5px solid rgba(139,94,60,0.20);
+  }
+
+  .server-status.ready {
+    display: block;
+    background: rgba(60,139,80,0.08);
+    color: #3a7a4a;
+    border: 1.5px solid rgba(60,139,80,0.25);
+  }
 </style>
 </head>
 <body>
@@ -180,16 +197,17 @@
   <textarea id="text-input" placeholder="Say something to Papa Jerry..."></textarea>
   <button class="btn-talk" id="btn-talk" onclick="handleTalk()">🐻 Talk to Papa Jerry</button>
   <div class="status" id="status"></div>
-  <div class="offline-notice" id="offline-notice">
-    Papa Jerry is not available right now.<br>
-    Please check back later when a session is active.
-  </div>
+  <div class="server-status" id="server-status"></div>
 </div>
 
 <script>
   var TUNNEL_URL_RAW = 'https://raw.githubusercontent.com/zaksix6/omnivoice-clone/main/tunnel_url.txt';
   var tunnelUrl = null;
   var conversationHistory = [];
+  var serverReady = false;
+  var checkTimer = null;
+  var checkCount = 0;
+  var MAX_CHECKS = 40; // give up after ~10 minutes
 
   // ── LIP SYNC ──
   var imgClosed  = document.getElementById('img-closed');
@@ -242,8 +260,22 @@
     el.className = 'status' + (type ? ' ' + type : '');
   }
 
-  function showOffline(show) {
-    document.getElementById('offline-notice').className = 'offline-notice' + (show ? ' visible' : '');
+  function showServerStatus(state, msg) {
+    var el = document.getElementById('server-status');
+    el.className = 'server-status ' + state;
+    el.innerHTML = msg;
+    // also lock/unlock the button based on server state
+    if (state === 'warming') {
+      document.getElementById('btn-talk').disabled = true;
+    } else if (state === 'ready') {
+      document.getElementById('btn-talk').disabled = false;
+    } else if (state === 'offline') {
+      document.getElementById('btn-talk').disabled = true;
+    }
+  }
+
+  function hideServerStatus() {
+    document.getElementById('server-status').className = 'server-status';
   }
 
   function showResponse(text) {
@@ -261,18 +293,75 @@
     return parts.map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
   }
 
+  // ── SERVER POLLING ──
+  function startServerCheck() {
+    checkCount = 0;
+    showServerStatus('warming', '⏳ Papa Jerry is warming up...<br>Please wait a moment!');
+    doServerCheck();
+  }
+
+  function doServerCheck() {
+    fetch(TUNNEL_URL_RAW + '?nocache=' + Date.now())
+      .then(function(r) { return r.text(); })
+      .then(function(text) {
+        var url = text.trim();
+        if (!url || !url.startsWith('http')) {
+          scheduleNextCheck();
+          return;
+        }
+        // URL found — now ping the server to see if it's actually responding
+        fetch(url + '/health', { method: 'GET' })
+          .then(function(resp) {
+            if (resp.ok || resp.status === 404) {
+              // 404 just means no /health route — server IS up
+              tunnelUrl = url;
+              serverReady = true;
+              showServerStatus('ready', '✅ Papa Jerry is ready to talk!');
+              setTimeout(function() { hideServerStatus(); }, 3000);
+            } else {
+              scheduleNextCheck();
+            }
+          })
+          .catch(function() {
+            // server not reachable yet
+            scheduleNextCheck();
+          });
+      })
+      .catch(function() {
+        scheduleNextCheck();
+      });
+  }
+
+  function scheduleNextCheck() {
+    checkCount++;
+    if (checkCount >= MAX_CHECKS) {
+      showServerStatus('offline', 'Papa Jerry is not available right now.<br>Please check back later when a session is active.');
+      return;
+    }
+    var waited = checkCount * 15;
+    showServerStatus('warming', '⏳ Papa Jerry is warming up... (' + waited + 's)<br>Checking again in 15 seconds &mdash; no need to refresh!');
+    checkTimer = setTimeout(doServerCheck, 15000);
+  }
+
   function getTunnelUrl(callback) {
+    if (serverReady && tunnelUrl) { callback(true); return; }
     fetch(TUNNEL_URL_RAW + '?nocache=' + Date.now())
       .then(function(r) { return r.text(); })
       .then(function(text) {
         var url = text.trim();
         if (url && url.startsWith('http')) {
-          tunnelUrl = url; showOffline(false); callback(true);
+          tunnelUrl = url; callback(true);
         } else {
-          tunnelUrl = null; showOffline(true); callback(false);
+          tunnelUrl = null;
+          showServerStatus('offline', 'Papa Jerry is not available right now.<br>Please check back later.');
+          callback(false);
         }
       })
-      .catch(function() { tunnelUrl = null; showOffline(true); callback(false); });
+      .catch(function() {
+        tunnelUrl = null;
+        showServerStatus('offline', 'Papa Jerry is not available right now.<br>Please check back later.');
+        callback(false);
+      });
   }
 
   function generateAudio(sentence, callback) {
@@ -289,9 +378,10 @@
     .catch(function() {
       clearTimeout(timeout);
       tunnelUrl = null;
-      showOffline(true);
+      serverReady = false;
+      showServerStatus('offline', 'Lost connection to Papa Jerry.<br>Please reload the page.');
       setStatus('', '');
-      document.getElementById('btn-talk').disabled = false;
+      document.getElementById('btn-talk').disabled = true;
       callback(null);
     });
   }
@@ -354,7 +444,7 @@
 
     document.getElementById('btn-talk').disabled = true;
     setStatus('Thinking...', 'active');
-    showOffline(false);
+    hideServerStatus();
 
     getTunnelUrl(function(ok) {
       if (!ok) {
@@ -363,7 +453,6 @@
         return;
       }
 
-      // Call /chat endpoint
       fetch(tunnelUrl + '/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -382,33 +471,30 @@
         }
         var reply = data.reply;
 
-        // Show text immediately
         showResponse(reply);
 
-        // Add to conversation history
         conversationHistory.push({ role: 'user', content: text });
         conversationHistory.push({ role: 'assistant', content: reply });
 
-        // Keep history to last 10 exchanges to avoid prompt getting too long
         if (conversationHistory.length > 20) {
           conversationHistory = conversationHistory.slice(-20);
         }
 
         setStatus('Preparing voice...', 'active');
-
-        // Now speak the response
         speakText(reply);
       })
       .catch(function() {
         setStatus('', '');
         document.getElementById('btn-talk').disabled = false;
-        showOffline(true);
         tunnelUrl = null;
+        serverReady = false;
+        showServerStatus('offline', 'Lost connection to Papa Jerry.<br>Please reload the page.');
       });
     });
   }
 
-  getTunnelUrl(function(ok) { if (!ok) setStatus('', ''); });
+  // Start polling on page load
+  startServerCheck();
 </script>
 
 </body>
