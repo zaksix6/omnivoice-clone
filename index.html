@@ -120,8 +120,13 @@
 
   textarea:focus { border-color: var(--accent); }
 
+  .btn-row {
+    display: flex;
+    gap: 8px;
+  }
+
   .btn-talk {
-    width: 100%;
+    flex: 1;
     font-family: 'Fredoka One', cursive;
     font-size: 1.1rem;
     padding: 12px;
@@ -140,6 +145,53 @@
   }
 
   .btn-talk:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-mic {
+    flex: 1;
+    font-family: 'Fredoka One', cursive;
+    font-size: 1rem;
+    padding: 12px;
+    border: none;
+    border-radius: 50px;
+    background: var(--brown);
+    color: white;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    box-shadow: 0 3px 10px var(--shadow);
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+
+  .btn-mic:hover:not(:disabled) {
+    background: var(--brown-dark);
+  }
+
+  .btn-mic:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-mic.recording {
+    background: #c0392b;
+    transform: scale(1.03);
+  }
+
+  .btn-replay {
+    width: 100%;
+    font-family: 'Fredoka One', cursive;
+    font-size: 0.95rem;
+    padding: 10px;
+    border: 2px solid var(--brown-light);
+    border-radius: 50px;
+    background: white;
+    color: var(--brown);
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+
+  .btn-replay:hover:not(:disabled) {
+    background: var(--cream);
+  }
+
+  .btn-replay:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .status {
     text-align: center;
@@ -194,7 +246,11 @@
   <div class="response-label" id="response-label">Papa Jerry says:</div>
   <div class="response-box"   id="response-box"></div>
   <textarea id="text-input" placeholder="Say something to Papa Jerry..."></textarea>
-  <button class="btn-talk" id="btn-talk" onclick="handleTalk()">🐻 Talk to Papa Jerry</button>
+  <div class="btn-row">
+    <button class="btn-talk" id="btn-talk" onclick="handleTalk()">🐻 Talk to Papa Jerry</button>
+    <button class="btn-mic" id="btn-mic" disabled>🎤 Hold to Talk</button>
+  </div>
+  <button class="btn-replay" id="btn-replay" onclick="replayLast()" disabled>🔁 Replay</button>
   <div class="status" id="status"></div>
   <div class="server-status" id="server-status"></div>
 </div>
@@ -262,7 +318,9 @@
     var el = document.getElementById('server-status');
     el.className = 'server-status ' + state;
     el.innerHTML = msg;
-    document.getElementById('btn-talk').disabled = (state !== 'ready');
+    var ready = (state === 'ready');
+    document.getElementById('btn-talk').disabled = !ready;
+    document.getElementById('btn-mic').disabled = !ready;
   }
 
   function hideServerStatus() {
@@ -311,7 +369,11 @@
             tunnelUrl = url;
             serverReady = true;
             showServerStatus('ready', '✅ Papa Jerry is ready to talk!');
-            setTimeout(function() { hideServerStatus(); document.getElementById('btn-talk').disabled = false; }, 3000);
+            setTimeout(function() {
+              hideServerStatus();
+              document.getElementById('btn-talk').disabled = false;
+              document.getElementById('btn-mic').disabled = false;
+            }, 3000);
           } else {
             scheduleNextCheck();
           }
@@ -336,7 +398,10 @@
     setTimeout(doServerCheck, 15000);
   }
 
-  function generateAudio(sentence, callback) {
+  // ── VOICE OUTPUT (speak + replay) ──
+  var lastAudioBlobs = [];
+
+  function generateAudio(sentence, index, callback) {
     var controller = new AbortController();
     var timeout = setTimeout(function() { controller.abort(); }, 30000);
     fetch(tunnelUrl + '/speak', {
@@ -346,7 +411,10 @@
       signal: controller.signal
     })
     .then(function(r) { clearTimeout(timeout); return r.blob(); })
-    .then(function(blob) { callback(URL.createObjectURL(blob)); })
+    .then(function(blob) {
+      lastAudioBlobs[index] = blob;
+      callback(URL.createObjectURL(blob));
+    })
     .catch(function() {
       clearTimeout(timeout);
       tunnelUrl = null;
@@ -354,6 +422,7 @@
       showServerStatus('offline', 'Papa Jerry is not available right now.<br>Please check back later.');
       setStatus('', '');
       document.getElementById('btn-talk').disabled = true;
+      document.getElementById('btn-mic').disabled = true;
       callback(null);
     });
   }
@@ -366,10 +435,15 @@
     var readyQueue = [];
     var isPlaying = false;
 
+    lastAudioBlobs = new Array(total);
+    document.getElementById('btn-replay').disabled = true;
+
     function checkAllDone() {
       if (generationDone && playedCount >= total) {
         setStatus('', '');
         document.getElementById('btn-talk').disabled = false;
+        document.getElementById('btn-mic').disabled = false;
+        document.getElementById('btn-replay').disabled = false;
         document.getElementById('text-input').value = '';
       }
     }
@@ -400,7 +474,7 @@
 
     function generateNext(index) {
       if (index >= total) { generationDone = true; checkAllDone(); return; }
-      generateAudio(sentences[index], function(url) {
+      generateAudio(sentences[index], index, function(url) {
         readyQueue.push(url);
         playNextReady();
         generateNext(index + 1);
@@ -410,11 +484,43 @@
     generateNext(0);
   }
 
+  function replayLast() {
+    if (!lastAudioBlobs.length) return;
+    document.getElementById('btn-replay').disabled = true;
+    document.getElementById('btn-talk').disabled = true;
+    document.getElementById('btn-mic').disabled = true;
+
+    var i = 0;
+    function playNext() {
+      if (i >= lastAudioBlobs.length) {
+        setStatus('', '');
+        document.getElementById('btn-replay').disabled = false;
+        document.getElementById('btn-talk').disabled = false;
+        document.getElementById('btn-mic').disabled = false;
+        return;
+      }
+      var blob = lastAudioBlobs[i];
+      i++;
+      if (!blob) { playNext(); return; }
+      var url = URL.createObjectURL(blob);
+      var audioEl = new Audio(url);
+      audioEl.crossOrigin = 'anonymous';
+      connectAudioElement(audioEl);
+      audioEl.onended = function() { URL.revokeObjectURL(url); playNext(); };
+      audioEl.onerror = function() { playNext(); };
+      setStatus('▶ Speaking...', 'active');
+      audioEl.play().catch(function() { playNext(); });
+    }
+    playNext();
+  }
+
+  // ── TEXT CHAT ──
   function handleTalk() {
     var text = document.getElementById('text-input').value.trim();
     if (!text) return;
 
     document.getElementById('btn-talk').disabled = true;
+    document.getElementById('btn-mic').disabled = true;
     setStatus('Thinking...', 'active');
     hideServerStatus();
 
@@ -432,6 +538,7 @@
       if (data.error) {
         setStatus('Error: ' + data.error, '');
         document.getElementById('btn-talk').disabled = false;
+        document.getElementById('btn-mic').disabled = false;
         return;
       }
       var reply = data.reply;
@@ -447,9 +554,82 @@
     .catch(function() {
       setStatus('', '');
       document.getElementById('btn-talk').disabled = false;
+      document.getElementById('btn-mic').disabled = false;
       tunnelUrl = null;
       serverReady = false;
       showServerStatus('offline', 'Papa Jerry is not available right now.<br>Please check back later.');
+    });
+  }
+
+  // ── VOICE INPUT (hold-to-talk mic) ──
+  var micBtn = document.getElementById('btn-mic');
+  var mediaRecorder = null;
+  var audioChunks = [];
+  var isRecording = false;
+
+  function startRecording() {
+    if (!tunnelUrl || !serverReady || isRecording) return;
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function(stream) {
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = function(e) { audioChunks.push(e.data); };
+        mediaRecorder.onstop = function() {
+          stream.getTracks().forEach(function(t) { t.stop(); });
+          var audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          sendForTranscription(audioBlob);
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        micBtn.classList.add('recording');
+        micBtn.textContent = '🎤 Recording... release to send';
+      })
+      .catch(function() {
+        setStatus('Microphone access denied.', '');
+      });
+  }
+
+  function stopRecording() {
+    if (!isRecording || !mediaRecorder) return;
+    mediaRecorder.stop();
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    micBtn.textContent = '🎤 Hold to Talk';
+  }
+
+  micBtn.addEventListener('mousedown', startRecording);
+  micBtn.addEventListener('touchstart', function(e) { e.preventDefault(); startRecording(); });
+  micBtn.addEventListener('mouseup', stopRecording);
+  micBtn.addEventListener('mouseleave', function() { if (isRecording) stopRecording(); });
+  micBtn.addEventListener('touchend', function(e) { e.preventDefault(); stopRecording(); });
+
+  function sendForTranscription(blob) {
+    setStatus('Listening...', 'active');
+    document.getElementById('btn-talk').disabled = true;
+    micBtn.disabled = true;
+
+    var formData = new FormData();
+    formData.append('file', blob, 'recording.webm');
+
+    fetch(tunnelUrl + '/transcribe', {
+      method: 'POST',
+      body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      micBtn.disabled = false;
+      if (data.error || !data.text) {
+        setStatus('Sorry, could not hear that. Try again.', '');
+        document.getElementById('btn-talk').disabled = false;
+        return;
+      }
+      document.getElementById('text-input').value = data.text;
+      handleTalk();
+    })
+    .catch(function() {
+      micBtn.disabled = false;
+      setStatus('Sorry, could not hear that. Try again.', '');
+      document.getElementById('btn-talk').disabled = false;
     });
   }
 
